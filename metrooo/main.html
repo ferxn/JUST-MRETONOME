@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Polyrhythm Metronome</title>
+<style>
+  body {
+    background: #111;
+    color: #eee;
+    font-family: Arial, sans-serif;
+    padding: 20px;
+    text-align: center;
+  }
+  label {
+    display: block;
+    margin: 8px 0;
+  }
+  input, select, button {
+    font-size: 1em;
+    padding: 5px 8px;
+    margin: 4px;
+  }
+  #stage {
+    position: relative;
+    margin: 40px auto 0;
+    width: 300px;
+    height: 300px;
+    background: #222;
+    border-radius: 10px;
+  }
+  .dot {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #00ffff;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: top 0.1s linear, left 0.1s linear;
+  }
+  #dot1 {
+    background: #00bfff;
+  }
+  #dot2 {
+    background: #ff6347;
+  }
+  #points1, #points2 {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+  .point {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #555;
+    transform: translate(-50%, -50%);
+  }
+  #points1 .point {
+    background: #0077aa;
+  }
+  #points2 .point {
+    background: #aa3300;
+  }
+</style>
+</head>
+<body>
+<h2>Polyrhythm Metronome</h2>
+
+<label>BPM: <input type="number" id="bpm" value="90" min="30" max="300"></label>
+<label>Beats (RED): <input type="number" id="beats1" value="4" min="2" max="12"></label>
+<label>Beats (BLUE): <input type="number" id="beats2" value="3" min="2" max="12"></label>
+<label>Key:
+  <select id="key">
+    <option value="C">C</option>
+    <option value="D">D</option>
+    <option value="E">E</option>
+    <option value="F">F</option>
+    <option value="G">G</option>
+    <option value="A">A</option>
+    <option value="B">B</option>
+  </select>
+</label>
+<label>Waveform:
+  <select id="waveform">
+    <option value="sine">Sine</option>
+    <option value="square">Square</option>
+    <option value="triangle">Triangle</option>
+    <option value="sawtooth">Sawtooth</option>
+  </select>
+</label>
+
+<button onclick="startMetronome()">Start</button>
+<button onclick="stopMetronome()">Stop</button>
+
+<div id="stage">
+  <div id="points1"></div>
+  <div id="points2"></div>
+  <div id="dot1" class="dot"></div>
+  <div id="dot2" class="dot"></div>
+</div>
+
+<script>
+const SEMITONE_MAP = {
+  "C": 60, "C#": 61, "D": 62, "D#": 63, "E": 64, "F": 65,
+  "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71
+};
+
+const context = new (window.AudioContext || window.webkitAudioContext)();
+let intervalId = null;
+
+function noteToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function playClick(freq, waveform) {
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+
+  osc.frequency.value = freq;
+  osc.type = waveform;
+  osc.connect(gain);
+  gain.connect(context.destination);
+
+  gain.gain.setValueAtTime(0.15, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.1);
+
+  osc.start();
+  osc.stop(context.currentTime + 0.1);
+}
+
+const stage = document.getElementById("stage");
+const points1Div = document.getElementById("points1");
+const points2Div = document.getElementById("points2");
+const dot1 = document.getElementById("dot1");
+const dot2 = document.getElementById("dot2");
+
+function createPolygonPoints(sides, radius, centerX, centerY) {
+  const points = [];
+  for (let i = 0; i < sides; i++) {
+    const angle = (2 * Math.PI / sides) * i - Math.PI / 2; // เริ่มจากมุมบน
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    points.push({x, y});
+  }
+  return points;
+}
+
+function drawPoints(container, points, color) {
+  container.innerHTML = "";
+  points.forEach(p => {
+    const point = document.createElement("div");
+    point.className = "point";
+    point.style.backgroundColor = color;
+    point.style.left = p.x + "px";
+    point.style.top = p.y + "px";
+    container.appendChild(point);
+  });
+}
+
+function startMetronome() {
+  stopMetronome();
+
+  if (context.state === 'suspended') {
+    context.resume();
+  }
+
+  const bpm = parseInt(document.getElementById("bpm").value);
+  const beats1 = parseInt(document.getElementById("beats1").value);
+  const beats2 = parseInt(document.getElementById("beats2").value);
+  const key = document.getElementById("key").value;
+  const waveform = document.getElementById("waveform").value;
+
+  const rect = stage.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const radius = 120;
+
+  // สร้างจุดมุม polygon
+  const points1 = createPolygonPoints(beats1, radius, centerX, centerY);
+  const points2 = createPolygonPoints(beats2, radius - 40, centerX, centerY);
+
+  drawPoints(points1Div, points1, "#0077aa");
+  drawPoints(points2Div, points2, "#aa3300");
+
+  const rootMidi = SEMITONE_MAP[key];
+  const fifthMidi = rootMidi + 7;
+  const highClick = rootMidi + 12;
+  const normalClick = fifthMidi;
+
+  const highFreq = noteToFreq(highClick);
+  const normalFreq = noteToFreq(normalClick);
+
+  const interval = 60000 / bpm;
+
+  let beatCount1 = 0;
+  let beatCount2 = 0;
+
+  intervalId = setInterval(() => {
+    // เสียงวงน้ำเงิน (dot1)
+    if (beatCount1 % beats1 === 0) {
+      playClick(highFreq, waveform);
+      dot1.style.backgroundColor = "#00ffff";
+    } else {
+      playClick(normalFreq, waveform);
+      dot1.style.backgroundColor = "#004444";
+    }
+    // ขยับ dot1 ไปจุดที่ beatCount1
+    const pos1 = points1[beatCount1 % beats1];
+    dot1.style.left = pos1.x + "px";
+    dot1.style.top = pos1.y + "px";
+
+    // เสียงวงแดง (dot2)
+    if (beatCount2 % beats2 === 0) {
+      playClick(highFreq, waveform);
+      dot2.style.backgroundColor = "#ff6347";
+    } else {
+      playClick(normalFreq, waveform);
+      dot2.style.backgroundColor = "#660000";
+    }
+    // ขยับ dot2 ไปจุดที่ beatCount2
+    const pos2 = points2[beatCount2 % beats2];
+    dot2.style.left = pos2.x + "px";
+    dot2.style.top = pos2.y + "px";
+
+    beatCount1++;
+    beatCount2++;
+  }, interval);
+}
+
+function stopMetronome() {
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+  dot1.style.left = "50%";
+  dot1.style.top = "50%";
+  dot1.style.backgroundColor = "#00ffff";
+  dot2.style.left = "50%";
+  dot2.style.top = "50%";
+  dot2.style.backgroundColor = "#ff6347";
+  points1Div.innerHTML = "";
+  points2Div.innerHTML = "";
+}
+</script>
+</body>
+</html>
